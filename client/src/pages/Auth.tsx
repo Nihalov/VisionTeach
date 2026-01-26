@@ -33,7 +33,7 @@ export default function Auth() {
         }
         await register(formData.name, formData.email, formData.password);
       }
-      navigate('/meeting');
+      navigate('/home');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {

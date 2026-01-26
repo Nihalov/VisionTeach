@@ -39,13 +39,17 @@ export default function Meeting() {
     }
   }, [isAuthenticated, navigate]);
 
+  useEffect(() => {
+    if (hasLocalVideo && localVideoRef.current && localStreamRef.current) {
+      localVideoRef.current.srcObject = localStreamRef.current;
+    }
+  }, [hasLocalVideo]);
+
   const startVideo = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
       localStreamRef.current = stream;
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
-      }
+      
       setHasLocalVideo(true);
       setIsVideoOff(false);
     } catch (error) {
@@ -95,7 +99,7 @@ export default function Meeting() {
 
   const handleLeave = () => {
     stopVideo();
-    navigate('/');
+    navigate('/home');
   };
 
   const handleCopyMeetingId = () => {
