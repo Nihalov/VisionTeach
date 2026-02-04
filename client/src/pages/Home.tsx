@@ -17,19 +17,81 @@ export default function Home() {
   const [joinMeetingId, setJoinMeetingId] = useState('');
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isJoinDialogOpen, setIsJoinDialogOpen] = useState(false);
+  const [createLoading, setCreateLoading] = useState(false);
+  const [joinLoading, setJoinLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
-  const handleCreateMeeting = () => {
-    navigate('/meeting');
+  const API_URL = (import.meta.env.VITE_API_URL as string) || 'http://localhost:5000';
+  const getToken = () => localStorage.getItem('token');
+
+  const handleCreateMeeting = async () => {
+    setError('');
+    if (!getToken()) {
+      setError('You must be logged in to create a meeting');
+      navigate('/auth');
+      return;
+    }
+
+    setCreateLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/rooms/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${getToken()}`,
+        },
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Failed to create meeting');
+
+      const rid = data.roomId || (data.room && data.room.roomId) || data._id || data.id;
+      if (!rid) throw new Error('Invalid room data from server');
+
+      setIsCreateDialogOpen(false);
+      navigate(`/meeting?meetingId=${rid}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create meeting');
+    } finally {
+      setCreateLoading(false);
+    }
   };
 
-  const handleJoinMeeting = () => {
-    if (joinMeetingId.trim()) {
-      navigate(`/meeting?meetingId=${joinMeetingId}`);
+  const handleJoinMeeting = async () => {
+    setError('');
+    if (!joinMeetingId.trim()) {
+      setError('Please enter a meeting ID');
+      return;
+    }
+    if (!getToken()) {
+      setError('You must be logged in to join a meeting');
+      navigate('/auth');
+      return;
+    }
+
+    setJoinLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/rooms/join/${encodeURIComponent(joinMeetingId)}`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${getToken()}`,
+        },
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Room not found');
+
       setIsJoinDialogOpen(false);
       setJoinMeetingId('');
+      const rid = data.roomId || (data.room && data.room.roomId) || data._id || data.id || joinMeetingId;
+      navigate(`/meeting?meetingId=${rid}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to join meeting');
+    } finally {
+      setJoinLoading(false);
     }
   };
 
@@ -75,6 +137,11 @@ export default function Home() {
             <p className="text-lg text-muted-foreground">
               Start a new meeting or join an existing one
             </p>
+            {error && (
+              <div className="mt-6 bg-destructive/10 border border-destructive/20 rounded-lg p-3 text-destructive text-sm mx-auto max-w-md">
+                {error}
+              </div>
+            )}
           </div>
 
           {/* Action Cards */}
@@ -168,6 +235,7 @@ export default function Home() {
                       variant="outline"
                       onClick={() => setIsJoinDialogOpen(false)}
                       className="flex-1"
+                      disabled={joinLoading}
                     >
                       Cancel
                     </Button>
@@ -175,9 +243,13 @@ export default function Home() {
                       variant="default"
                       onClick={handleJoinMeeting}
                       className="flex-1"
-                      disabled={!joinMeetingId.trim()}
+                      disabled={joinLoading || !joinMeetingId.trim()}
                     >
-                      Join
+                      {joinLoading ? (
+                        <div className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full mx-auto animate-spin" />
+                      ) : (
+                        'Join'
+                      )}
                     </Button>
                   </div>
                 </div>
