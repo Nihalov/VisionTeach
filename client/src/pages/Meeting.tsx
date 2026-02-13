@@ -27,6 +27,9 @@ export default function Meeting() {
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const screenTrackRef = useRef<MediaStreamTrack | null>(null);
+  const previousVideoTrackRef = useRef<MediaStreamTrack | null>(null);
+  const hadVideoBeforeShareRef = useRef(false);
 
   const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
@@ -47,9 +50,21 @@ export default function Meeting() {
 
   const startVideo = useCallback(async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      localStreamRef.current = stream;
-      
+      const videoStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      const videoTrack = videoStream.getVideoTracks()[0];
+      if (!videoTrack) return;
+
+      if (!localStreamRef.current) {
+        localStreamRef.current = new MediaStream();
+      }
+
+      const existingVideoTrack = localStreamRef.current.getVideoTracks()[0];
+      if (existingVideoTrack) {
+        localStreamRef.current.removeTrack(existingVideoTrack);
+        existingVideoTrack.stop();
+      }
+
+      localStreamRef.current.addTrack(videoTrack);
       setHasLocalVideo(true);
       setIsVideoOff(false);
     } catch (error) {
@@ -59,37 +74,130 @@ export default function Meeting() {
 
   const stopVideo = useCallback(() => {
     if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach(track => track.stop());
-      localStreamRef.current = null;
+      localStreamRef.current.getVideoTracks().forEach(track => {
+        localStreamRef.current?.removeTrack(track);
+        track.stop();
+      });
+      if (localStreamRef.current.getTracks().length === 0) {
+        localStreamRef.current = null;
+      }
     }
     setHasLocalVideo(false);
     setIsVideoOff(true);
+  }, []);
+
+  const stopScreenShare = useCallback((restorePreviousVideo = true) => {
+    if (!localStreamRef.current) {
+      setIsScreenSharing(false);
+      return;
+    }
+
+    const screenTrack = screenTrackRef.current;
+    if (screenTrack) {
+      localStreamRef.current.removeTrack(screenTrack);
+      screenTrack.stop();
+      screenTrackRef.current = null;
+    }
+
+    if (
+      restorePreviousVideo &&
+      hadVideoBeforeShareRef.current &&
+      previousVideoTrackRef.current &&
+      previousVideoTrackRef.current.readyState === 'live'
+    ) {
+      localStreamRef.current.addTrack(previousVideoTrackRef.current);
+      setHasLocalVideo(true);
+      setIsVideoOff(false);
+    } else {
+      setHasLocalVideo(false);
+      setIsVideoOff(true);
+      if (localStreamRef.current.getTracks().length === 0) {
+        localStreamRef.current = null;
+      }
+    }
+
+    previousVideoTrackRef.current = null;
+    hadVideoBeforeShareRef.current = false;
+    setIsScreenSharing(false);
   }, []);
 
   const handleToggleVideo = () => {
     if (isVideoOff) {
       startVideo();
     } else {
+      if (isScreenSharing) {
+        stopScreenShare(false);
+      }
       stopVideo();
     }
   };
 
   const handleToggleMute = () => {
+    if (isMuted) {
+      void (async () => {
+        try {
+          if (!localStreamRef.current) {
+            localStreamRef.current = new MediaStream();
+          }
+
+          let audioTrack = localStreamRef.current.getAudioTracks()[0];
+          if (!audioTrack) {
+            const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+            audioTrack = audioStream.getAudioTracks()[0];
+            if (audioTrack) {
+              localStreamRef.current.addTrack(audioTrack);
+            }
+          }
+
+          if (audioTrack) {
+            audioTrack.enabled = true;
+            setIsMuted(false);
+          }
+        } catch (error) {
+          console.error('Error accessing microphone:', error);
+        }
+      })();
+      return;
+    }
+
     if (localStreamRef.current) {
       const audioTrack = localStreamRef.current.getAudioTracks()[0];
       if (audioTrack) {
-        audioTrack.enabled = isMuted;
+        audioTrack.enabled = false;
       }
     }
-    setIsMuted(!isMuted);
+    setIsMuted(true);
   };
 
   const handleToggleScreenShare = async () => {
     if (isScreenSharing) {
-      setIsScreenSharing(false);
+      stopScreenShare(true);
     } else {
       try {
-        await navigator.mediaDevices.getDisplayMedia({ video: true });
+        const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+        const screenTrack = screenStream.getVideoTracks()[0];
+        if (!screenTrack) return;
+
+        if (!localStreamRef.current) {
+          localStreamRef.current = new MediaStream();
+        }
+
+        hadVideoBeforeShareRef.current = hasLocalVideo && !isVideoOff;
+        previousVideoTrackRef.current = localStreamRef.current.getVideoTracks()[0] ?? null;
+
+        if (previousVideoTrackRef.current) {
+          localStreamRef.current.removeTrack(previousVideoTrackRef.current);
+        }
+
+        localStreamRef.current.addTrack(screenTrack);
+        screenTrackRef.current = screenTrack;
+        screenTrack.onended = () => stopScreenShare(true);
+
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = localStreamRef.current;
+        }
+
+        setHasLocalVideo(true);
         setIsScreenSharing(true);
       } catch (error) {
         console.error('Error sharing screen:', error);
@@ -98,7 +206,16 @@ export default function Meeting() {
   };
 
   const handleLeave = () => {
-    stopVideo();
+    if (isScreenSharing) {
+      stopScreenShare(false);
+    }
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => track.stop());
+      localStreamRef.current = null;
+    }
+    setHasLocalVideo(false);
+    setIsVideoOff(true);
+    setIsMuted(true);
     navigate('/home');
   };
 
@@ -157,6 +274,7 @@ export default function Meeting() {
               avatar={user?.avatar}
               isMuted={isMuted}
               isLocal
+              mirror={!isScreenSharing}
               videoRef={localVideoRef}
               hasVideo={hasLocalVideo}
               isPinned

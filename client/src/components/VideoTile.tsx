@@ -6,6 +6,7 @@ interface VideoTileProps {
   isMuted?: boolean;
   isPinned?: boolean;
   isLocal?: boolean;
+  mirror?: boolean;
   videoRef?: React.RefObject<HTMLVideoElement>;
   canvasRef?: React.RefObject<HTMLCanvasElement>; // Added for VisionTeach drawing
   hasVideo?: boolean;
@@ -17,6 +18,7 @@ export default function VideoTile({
   isMuted = false,
   isPinned = false,
   isLocal = false,
+  mirror = isLocal,
   videoRef,
   canvasRef,
   hasVideo = false,
@@ -32,7 +34,7 @@ export default function VideoTile({
         If isLocal is true, we flip this ENTIRE container using scale-x-[-1].
         This ensures the "Ink" on the canvas flips exactly with the video.
       */}
-      <div className={`absolute inset-0 w-full h-full ${isLocal ? 'scale-x-[-1]' : ''}`}>
+      <div className={`absolute inset-0 w-full h-full ${mirror ? 'scale-x-[-1]' : ''}`}>
         {hasVideo && videoRef ? (
           <>
             <video
