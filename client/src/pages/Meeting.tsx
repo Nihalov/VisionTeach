@@ -1,46 +1,177 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import VideoTile from '@/components/VideoTile';
-import ChatPanel from '@/components/ChatPanel';
-import ParticipantsPanel from '@/components/ParticipantsPanel';
-import ControlBar from '@/components/ControlBar';
-// import DrawingOverlay from '@/components/DrawingOverlay';
-import { useAuth } from '@/hooks/useAuth';
-import { Shield, Copy, Check } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-
-const mockParticipants = [
-  { id: '2', name: 'Sarah Chen', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Sarah' },
-  { id: '3', name: 'Mike Johnson', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Mike' },
-  { id: '4', name: 'Emma Wilson', avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Emma' },
-];
+import { useState, useRef, useCallback, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import VideoTile from "@/components/VideoTile";
+import ChatPanel from "@/components/ChatPanel";
+import ParticipantsPanel from "@/components/ParticipantsPanel";
+import ControlBar from "@/components/ControlBar";
+import { useAuth } from "@/hooks/useAuth";
+import { Shield, Copy, Check } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { socket } from "../services/socket";
+import { peerConnection } from "../services/webrtc";
 
 export default function Meeting() {
+
+  /* ---------------- STATES ---------------- */
+
   const [isMuted, setIsMuted] = useState(true);
   const [isVideoOff, setIsVideoOff] = useState(true);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isParticipantsOpen, setIsParticipantsOpen] = useState(false);
-  // const [isDrawingActive, setIsDrawingActive] = useState(false);
   const [hasLocalVideo, setHasLocalVideo] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [localSocketId, setLocalSocketId] = useState<string | null>(null);
+
+  const [participants, setParticipants] = useState<
+    { id: string; name: string }[]
+  >([]);
+
+  /* ---------------- REFS ---------------- */
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement>(null);
+
   const localStreamRef = useRef<MediaStream | null>(null);
-  const screenTrackRef = useRef<MediaStreamTrack | null>(null);
-  const previousVideoTrackRef = useRef<MediaStreamTrack | null>(null);
-  const hadVideoBeforeShareRef = useRef(false);
+
+  /* ---------------- AUTH ---------------- */
 
   const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const meetingId = "abc-defg-hij";
 
-  const meetingId = 'abc-defg-hij';
+  /* ---------------- AUTH GUARD ---------------- */
 
   useEffect(() => {
-    if (!isAuthenticated) {
-      navigate('/');
-    }
+    if (!isAuthenticated) navigate("/");
   }, [isAuthenticated, navigate]);
+
+  /* ---------------- DEBUG: LOG PARTICIPANTS CHANGES ---------------- */
+
+  useEffect(() => {
+    console.log("📊 Participants updated:", participants);
+  }, [participants]);
+
+  /* ---------------- CREATE OFFER ---------------- */
+
+  const createOffer = async () => {
+    console.log("Creating offer...");
+    const offer = await peerConnection.createOffer();
+    await peerConnection.setLocalDescription(offer);
+
+    socket.emit("offer", {
+      roomId: meetingId,
+      offer
+    });
+  };
+
+  /* ---------------- SOCKET + WEBRTC ---------------- */
+
+  useEffect(() => {
+
+    // Wait for socket to connect and get ID
+    const handleConnect = () => {
+      console.log("Socket connected with ID:", socket.id);
+      setLocalSocketId(socket.id);
+      
+      socket.emit("join-room", {
+        roomId: meetingId,
+        user: { name: user?.name || "Guest" }
+      });
+    };
+
+    if (socket.connected) {
+      handleConnect();
+    } else {
+      socket.on("connect", handleConnect);
+    }
+
+    // ✅ receive existing users (filter out self)
+    socket.on("existing-users", (users) => {
+      console.log("Existing users:", users, "Local socket:", socket.id);
+      const remoteUsers = users.filter(u => u.id !== socket.id);
+      console.log("Remote users after filter:", remoteUsers);
+      setParticipants(remoteUsers);
+    });
+
+    // ✅ new user joined
+    socket.on("user-joined", (participant) => {
+      console.log("User joined:", participant, "Local socket:", socket.id);
+      // Only add if it's not us
+      if (participant.id !== socket.id) {
+        setParticipants(prev => [...prev, participant]);
+      }
+    });
+
+    // ✅ user left
+    socket.on("user-left", (id: string) => {
+      console.log("User left event received. ID:", id, "Local socket:", socket.id);
+      console.log("Current participants before filter:", participants);
+      setParticipants(prev => {
+        const updated = prev.filter(p => p.id !== id);
+        console.log("Participants after filter:", updated);
+        return updated;
+      });
+    });
+
+    peerConnection.ontrack = (event) => {
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = event.streams[0];
+      }
+    };
+
+    peerConnection.onicecandidate = (event) => {
+      if (event.candidate) {
+        socket.emit("ice-candidate", {
+          roomId: meetingId,
+          candidate: event.candidate
+        });
+      }
+    };
+
+    socket.on("offer", async (data) => {
+      console.log("Offer received");
+
+      await peerConnection.setRemoteDescription(
+        new RTCSessionDescription(data.offer)
+      );
+
+      const answer = await peerConnection.createAnswer();
+      await peerConnection.setLocalDescription(answer);
+
+      socket.emit("answer", {
+        roomId: meetingId,
+        answer
+      });
+    });
+
+    socket.on("answer", async (data) => {
+      console.log("Answer received");
+
+      await peerConnection.setRemoteDescription(
+        new RTCSessionDescription(data.answer)
+      );
+    });
+
+    socket.on("ice-candidate", async (data) => {
+      await peerConnection.addIceCandidate(
+        new RTCIceCandidate(data.candidate)
+      );
+    });
+
+    return () => {
+      socket.off("connect");
+      socket.off("existing-users");
+      socket.off("user-joined");
+      socket.off("user-left");
+      socket.off("offer");
+      socket.off("answer");
+      socket.off("ice-candidate");
+    };
+
+  }, [meetingId, user?.name]);
+
+  /* ---------------- LOCAL VIDEO ---------------- */
 
   useEffect(() => {
     if (hasLocalVideo && localVideoRef.current && localStreamRef.current) {
@@ -49,175 +180,79 @@ export default function Meeting() {
   }, [hasLocalVideo]);
 
   const startVideo = useCallback(async () => {
-    try {
-      const videoStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-      const videoTrack = videoStream.getVideoTracks()[0];
-      if (!videoTrack) return;
 
-      if (!localStreamRef.current) {
-        localStreamRef.current = new MediaStream();
-      }
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: true,
+      audio: false
+    });
 
-      const existingVideoTrack = localStreamRef.current.getVideoTracks()[0];
-      if (existingVideoTrack) {
-        localStreamRef.current.removeTrack(existingVideoTrack);
-        existingVideoTrack.stop();
-      }
+    const videoTrack = stream.getVideoTracks()[0];
 
-      localStreamRef.current.addTrack(videoTrack);
-      setHasLocalVideo(true);
-      setIsVideoOff(false);
-    } catch (error) {
-      console.error('Error accessing camera:', error);
-    }
-  }, []);
-
-  const stopVideo = useCallback(() => {
-    if (localStreamRef.current) {
-      localStreamRef.current.getVideoTracks().forEach(track => {
-        localStreamRef.current?.removeTrack(track);
-        track.stop();
-      });
-      if (localStreamRef.current.getTracks().length === 0) {
-        localStreamRef.current = null;
-      }
-    }
-    setHasLocalVideo(false);
-    setIsVideoOff(true);
-  }, []);
-
-  const stopScreenShare = useCallback((restorePreviousVideo = true) => {
     if (!localStreamRef.current) {
-      setIsScreenSharing(false);
-      return;
+      localStreamRef.current = new MediaStream();
     }
 
-    const screenTrack = screenTrackRef.current;
-    if (screenTrack) {
-      localStreamRef.current.removeTrack(screenTrack);
-      screenTrack.stop();
-      screenTrackRef.current = null;
-    }
+    localStreamRef.current.addTrack(videoTrack);
+    peerConnection.addTrack(videoTrack, localStreamRef.current);
 
-    if (
-      restorePreviousVideo &&
-      hadVideoBeforeShareRef.current &&
-      previousVideoTrackRef.current &&
-      previousVideoTrackRef.current.readyState === 'live'
-    ) {
-      localStreamRef.current.addTrack(previousVideoTrackRef.current);
-      setHasLocalVideo(true);
-      setIsVideoOff(false);
-    } else {
-      setHasLocalVideo(false);
-      setIsVideoOff(true);
-      if (localStreamRef.current.getTracks().length === 0) {
-        localStreamRef.current = null;
-      }
-    }
+    setHasLocalVideo(true);
+    setIsVideoOff(false);
 
-    previousVideoTrackRef.current = null;
-    hadVideoBeforeShareRef.current = false;
-    setIsScreenSharing(false);
+    // create offer AFTER camera ready
+    createOffer();
+
   }, []);
+
+  /* ---------------- MUTE ---------------- */
+
+  const handleToggleMute = async () => {
+
+    if (!localStreamRef.current) {
+      localStreamRef.current = new MediaStream();
+    }
+
+    let audioTrack = localStreamRef.current.getAudioTracks()[0];
+
+    if (!audioTrack) {
+      const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioTrack = audioStream.getAudioTracks()[0];
+      localStreamRef.current.addTrack(audioTrack);
+      peerConnection.addTrack(audioTrack, localStreamRef.current);
+    }
+
+    audioTrack.enabled = !audioTrack.enabled;
+    setIsMuted(!audioTrack.enabled);
+  };
+
+  /* ---------------- VIDEO TOGGLE ---------------- */
 
   const handleToggleVideo = () => {
     if (isVideoOff) {
+      // Turn camera ON
       startVideo();
     } else {
-      if (isScreenSharing) {
-        stopScreenShare(false);
+      // Turn camera OFF
+      if (localStreamRef.current) {
+        const videoTracks = localStreamRef.current.getVideoTracks();
+        videoTracks.forEach(track => {
+          track.stop();
+          localStreamRef.current?.removeTrack(track);
+        });
       }
-      stopVideo();
+      setIsVideoOff(true);
+      setHasLocalVideo(false);
     }
   };
 
-  const handleToggleMute = () => {
-    if (isMuted) {
-      void (async () => {
-        try {
-          if (!localStreamRef.current) {
-            localStreamRef.current = new MediaStream();
-          }
-
-          let audioTrack = localStreamRef.current.getAudioTracks()[0];
-          if (!audioTrack) {
-            const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-            audioTrack = audioStream.getAudioTracks()[0];
-            if (audioTrack) {
-              localStreamRef.current.addTrack(audioTrack);
-            }
-          }
-
-          if (audioTrack) {
-            audioTrack.enabled = true;
-            setIsMuted(false);
-          }
-        } catch (error) {
-          console.error('Error accessing microphone:', error);
-        }
-      })();
-      return;
-    }
-
-    if (localStreamRef.current) {
-      const audioTrack = localStreamRef.current.getAudioTracks()[0];
-      if (audioTrack) {
-        audioTrack.enabled = false;
-      }
-    }
-    setIsMuted(true);
-  };
-
-  const handleToggleScreenShare = async () => {
-    if (isScreenSharing) {
-      stopScreenShare(true);
-    } else {
-      try {
-        const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
-        const screenTrack = screenStream.getVideoTracks()[0];
-        if (!screenTrack) return;
-
-        if (!localStreamRef.current) {
-          localStreamRef.current = new MediaStream();
-        }
-
-        hadVideoBeforeShareRef.current = hasLocalVideo && !isVideoOff;
-        previousVideoTrackRef.current = localStreamRef.current.getVideoTracks()[0] ?? null;
-
-        if (previousVideoTrackRef.current) {
-          localStreamRef.current.removeTrack(previousVideoTrackRef.current);
-        }
-
-        localStreamRef.current.addTrack(screenTrack);
-        screenTrackRef.current = screenTrack;
-        screenTrack.onended = () => stopScreenShare(true);
-
-        if (localVideoRef.current) {
-          localVideoRef.current.srcObject = localStreamRef.current;
-        }
-
-        setHasLocalVideo(true);
-        setIsScreenSharing(true);
-      } catch (error) {
-        console.error('Error sharing screen:', error);
-      }
-    }
-  };
+  /* ---------------- LEAVE ---------------- */
 
   const handleLeave = () => {
-    if (isScreenSharing) {
-      stopScreenShare(false);
-    }
-    if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach(track => track.stop());
-      localStreamRef.current = null;
-    }
-    setHasLocalVideo(false);
-    setIsVideoOff(true);
-    setIsMuted(true);
-    navigate('/home');
+    localStreamRef.current?.getTracks().forEach(t => t.stop());
+    socket.disconnect();
+    navigate("/home");
   };
+
+  /* ---------------- COPY ---------------- */
 
   const handleCopyMeetingId = () => {
     navigator.clipboard.writeText(meetingId);
@@ -225,103 +260,73 @@ export default function Meeting() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const getGridClass = () => {
-    const total = mockParticipants.length + 1; // +1 for local user
-    if (total <= 2) return 'grid-cols-1 md:grid-cols-2';
-    if (total <= 4) return 'grid-cols-2';
-    if (total <= 6) return 'grid-cols-2 md:grid-cols-3';
-    return 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4';
-  };
+  /* ---------------- UI ---------------- */
 
   return (
-    <div className="h-screen flex flex-col bg-background overflow-hidden">
-      {/* Header */}
-      <header className="flex items-center justify-between px-6 py-3 glass-strong border-b border-border z-40">
+    <div className="h-screen flex flex-col bg-background">
+
+      {/* HEADER */}
+      <header className="flex items-center justify-between px-6 py-3 border-b">
         <div className="flex items-center gap-3">
-          <h1 className="text-xl font-display font-bold gradient-text">GestureLearn</h1>
-          <div className="hidden sm:flex items-center gap-2 ml-4">
-            <Shield className="w-4 h-4 text-accent" />
-            <span className="text-sm text-muted-foreground">Meeting ID:</span>
-            <code className="text-sm text-foreground font-mono">{meetingId}</code>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8"
-              onClick={handleCopyMeetingId}
-            >
-              {copied ? <Check className="w-4 h-4 text-accent" /> : <Copy className="w-4 h-4" />}
-            </Button>
-          </div>
+          <h1 className="text-xl font-bold">GestureLearn</h1>
+
+          <Shield className="w-4 h-4" />
+          <code>{meetingId}</code>
+
+          <Button size="icon" onClick={handleCopyMeetingId}>
+            {copied ? <Check /> : <Copy />}
+          </Button>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="text-sm text-muted-foreground">
-            {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          </div>
-          <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-sm font-semibold text-primary">
-            {user?.name?.charAt(0) || 'U'}
-          </div>
+
+        <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
+          {user?.name?.charAt(0) || "U"}
         </div>
       </header>
 
-      {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Video Grid */}
-        <div className="flex-1 relative p-4 overflow-y-auto">
-          <div className={`grid ${getGridClass()} gap-4 auto-rows-fr isolate`}>
-            {/* Local User */}
+      {/* VIDEO GRID */}
+      <div className="flex-1 grid grid-cols-2 gap-4 p-4">
+
+        {/* LOCAL */}
+        <VideoTile
+          name={user?.name || "You"}
+          isMuted={isMuted}
+          isLocal
+          videoRef={localVideoRef}
+          hasVideo={hasLocalVideo}
+        />
+
+        {/* REMOTES */}
+        {participants
+          .filter(p => p.id !== localSocketId)
+          .map(p => (
             <VideoTile
-              name={user?.name || 'You'}
-              avatar={user?.avatar}
-              isMuted={isMuted}
-              isLocal
-              mirror={!isScreenSharing}
-              videoRef={localVideoRef}
-              hasVideo={hasLocalVideo}
-              isPinned
+              key={p.id}
+              name={p.name}
+              isMuted={true}
+              hasVideo={false}
             />
+          ))}
 
-            {/* Remote Participants */}
-            {mockParticipants.map((participant) => (
-              <VideoTile
-                key={participant.id}
-                name={participant.name}
-                avatar={participant.avatar}
-                isMuted={Math.random() > 0.5}
-              />
-            ))}
-          </div>
-
-          {/* Drawing Overlay */}
-          {/* <DrawingOverlay isActive={isDrawingActive} onToggle={() => setIsDrawingActive(!isDrawingActive)} /> */}
-
-          {/* Control Bar */}
-          <ControlBar
-            isMuted={isMuted}
-            isVideoOff={isVideoOff}
-            isScreenSharing={isScreenSharing}
-            isChatOpen={isChatOpen}
-            isParticipantsOpen={isParticipantsOpen}
-            // isDrawingActive={isDrawingActive}
-            onToggleMute={handleToggleMute}
-            onToggleVideo={handleToggleVideo}
-            onToggleScreenShare={handleToggleScreenShare}
-            onToggleChat={() => {
-              setIsChatOpen(!isChatOpen);
-              if (!isChatOpen) setIsParticipantsOpen(false);
-            }}
-            onToggleParticipants={() => {
-              setIsParticipantsOpen(!isParticipantsOpen);
-              if (!isParticipantsOpen) setIsChatOpen(false);
-            }}
-            // onToggleDrawing={() => setIsDrawingActive(!isDrawingActive)}
-            onLeave={handleLeave}
-          />
-        </div>
-
-        {/* Side Panels */}
-        <ChatPanel isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
-        <ParticipantsPanel isOpen={isParticipantsOpen} onClose={() => setIsParticipantsOpen(false)} />
       </div>
+
+      {/* CONTROLS */}
+      <ControlBar
+        isMuted={isMuted}
+        isVideoOff={isVideoOff}
+        isScreenSharing={false}
+        isChatOpen={false}
+        isParticipantsOpen={false}
+        onToggleMute={handleToggleMute}
+        onToggleVideo={handleToggleVideo}
+        onToggleScreenShare={() => {}}
+        onToggleChat={() => {}}
+        onToggleParticipants={() => {}}
+        onLeave={handleLeave}
+      />
+
+      <ChatPanel isOpen={false} onClose={() => {}} />
+      <ParticipantsPanel isOpen={false} onClose={() => {}} />
+
     </div>
   );
 }

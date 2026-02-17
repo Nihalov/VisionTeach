@@ -24,7 +24,7 @@ export default function Home() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
-  const API_URL = (import.meta.env.VITE_API_URL as string) || 'http://localhost:5000';
+  const API_URL = (import.meta.env.VITE_API_URL as string) || 'http://172.20.35.221:5000';
   const getToken = () => localStorage.getItem('token');
 
   const handleCreateMeeting = async () => {
