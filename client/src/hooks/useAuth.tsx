@@ -17,7 +17,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const API_URL = (import.meta.env.VITE_API_URL as string) || 'http://172.20.35.221:5000';
+const API_URL = (import.meta.env.VITE_API_URL as string) || 'https://brickier-sabrina-unpiratical.ngrok-free.dev';
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(() => {

@@ -7,7 +7,7 @@ interface VideoTileProps {
   isPinned?: boolean;
   isLocal?: boolean;
   mirror?: boolean;
-  videoRef?: React.RefObject<HTMLVideoElement>;
+  videoRef?: React.Ref<HTMLVideoElement>;
   canvasRef?: React.RefObject<HTMLCanvasElement>; // Added for VisionTeach drawing
   hasVideo?: boolean;
 }

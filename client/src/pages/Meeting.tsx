@@ -8,7 +8,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Shield, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { socket } from "../services/socket";
-import { peerConnection } from "../services/webrtc";
+import { createPeerConnection } from "../services/webrtc";
 
 export default function Meeting() {
 
@@ -16,23 +16,23 @@ export default function Meeting() {
 
   const [isMuted, setIsMuted] = useState(true);
   const [isVideoOff, setIsVideoOff] = useState(true);
-  const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isParticipantsOpen, setIsParticipantsOpen] = useState(false);
   const [hasLocalVideo, setHasLocalVideo] = useState(false);
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
   const [copied, setCopied] = useState(false);
   const [localSocketId, setLocalSocketId] = useState<string | null>(null);
-
-  const [participants, setParticipants] = useState<
-    { id: string; name: string }[]
-  >([]);
+  const [participants, setParticipants] = useState<{ id: string; name: string }[]>([]);
 
   /* ---------------- REFS ---------------- */
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
-
   const localStreamRef = useRef<MediaStream | null>(null);
+
+  // Store the active RTCPeerConnection in a ref so it's accessible everywhere
+  // without triggering re-renders, and so we can close/replace it cleanly.
+  const pcRef = useRef<RTCPeerConnection | null>(null);
 
   /* ---------------- AUTH ---------------- */
 
@@ -46,34 +46,74 @@ export default function Meeting() {
     if (!isAuthenticated) navigate("/");
   }, [isAuthenticated, navigate]);
 
-  /* ---------------- DEBUG: LOG PARTICIPANTS CHANGES ---------------- */
+  /* ---------------- HELPERS ---------------- */
+
+  /**
+   * Create (or recreate) a fresh RTCPeerConnection, wiring all the callbacks.
+   * If there is an old connection it is closed first.
+   */
+  const initPC = useCallback(() => {
+    // Close existing connection cleanly before creating a new one
+    if (pcRef.current) {
+      pcRef.current.ontrack = null;
+      pcRef.current.onicecandidate = null;
+      pcRef.current.close();
+    }
+
+    const pc = createPeerConnection();
+    pcRef.current = pc;
+
+    // Deliver any existing local tracks to the new connection
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => {
+        pc.addTrack(track, localStreamRef.current!);
+      });
+    }
+
+    pc.ontrack = (event) => {
+      console.log("ontrack fired, got stream", event.streams[0]);
+      setRemoteStream(event.streams[0]);
+    };
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        socket.emit("ice-candidate", {
+          roomId: meetingId,
+          candidate: event.candidate
+        });
+      }
+    };
+
+    // Log connection state changes for easy debugging
+    pc.onconnectionstatechange = () => {
+      console.log("PeerConnection state:", pc.connectionState);
+    };
+
+    return pc;
+  }, [meetingId]);
+
+  /**
+   * Build an offer on the current (or a freshly created) connection and
+   * broadcast it to the room.
+   */
+  const sendOffer = useCallback(async (pc: RTCPeerConnection) => {
+    try {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      socket.emit("offer", { roomId: meetingId, offer });
+      console.log("Offer sent");
+    } catch (err) {
+      console.error("sendOffer failed:", err);
+    }
+  }, [meetingId]);
+
+  /* ---------------- SOCKET + WEBRTC EVENTS ---------------- */
 
   useEffect(() => {
-    console.log("📊 Participants updated:", participants);
-  }, [participants]);
 
-  /* ---------------- CREATE OFFER ---------------- */
-
-  const createOffer = async () => {
-    console.log("Creating offer...");
-    const offer = await peerConnection.createOffer();
-    await peerConnection.setLocalDescription(offer);
-
-    socket.emit("offer", {
-      roomId: meetingId,
-      offer
-    });
-  };
-
-  /* ---------------- SOCKET + WEBRTC ---------------- */
-
-  useEffect(() => {
-
-    // Wait for socket to connect and get ID
     const handleConnect = () => {
       console.log("Socket connected with ID:", socket.id);
       setLocalSocketId(socket.id);
-      
       socket.emit("join-room", {
         roomId: meetingId,
         user: { name: user?.name || "Guest" }
@@ -86,77 +126,71 @@ export default function Meeting() {
       socket.on("connect", handleConnect);
     }
 
-    // ✅ receive existing users (filter out self)
-    socket.on("existing-users", (users) => {
-      console.log("Existing users:", users, "Local socket:", socket.id);
-      const remoteUsers = users.filter(u => u.id !== socket.id);
-      console.log("Remote users after filter:", remoteUsers);
-      setParticipants(remoteUsers);
+    // Receive existing users (filter out self)
+    socket.on("existing-users", (users: { id: string; name: string }[]) => {
+      console.log("Existing users:", users);
+      setParticipants(users.filter(u => u.id !== socket.id));
     });
 
-    // ✅ new user joined
-    socket.on("user-joined", (participant) => {
-      console.log("User joined:", participant, "Local socket:", socket.id);
-      // Only add if it's not us
-      if (participant.id !== socket.id) {
-        setParticipants(prev => [...prev, participant]);
-      }
-    });
+    // A new peer has joined — add to list and, if we already have video running,
+    // send them an offer so they can see us without a page refresh.
+    socket.on("user-joined", (participant: { id: string; name: string }) => {
+      console.log("User joined:", participant);
+      if (participant.id === socket.id) return;
 
-    // ✅ user left
-    socket.on("user-left", (id: string) => {
-      console.log("User left event received. ID:", id, "Local socket:", socket.id);
-      console.log("Current participants before filter:", participants);
       setParticipants(prev => {
-        const updated = prev.filter(p => p.id !== id);
-        console.log("Participants after filter:", updated);
-        return updated;
+        // Prevent duplicates
+        if (prev.find(p => p.id === participant.id)) return prev;
+        return [...prev, participant];
       });
+
+      // If we are already streaming, initiate a fresh negotiation so the new
+      // peer receives our video immediately.
+      if (localStreamRef.current && localStreamRef.current.getTracks().length > 0) {
+        console.log("New peer joined while we have media — sending offer");
+        const pc = initPC();
+        sendOffer(pc);
+      }
     });
 
-    peerConnection.ontrack = (event) => {
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = event.streams[0];
-      }
-    };
-
-    peerConnection.onicecandidate = (event) => {
-      if (event.candidate) {
-        socket.emit("ice-candidate", {
-          roomId: meetingId,
-          candidate: event.candidate
-        });
-      }
-    };
-
-    socket.on("offer", async (data) => {
-      console.log("Offer received");
-
-      await peerConnection.setRemoteDescription(
-        new RTCSessionDescription(data.offer)
-      );
-
-      const answer = await peerConnection.createAnswer();
-      await peerConnection.setLocalDescription(answer);
-
-      socket.emit("answer", {
-        roomId: meetingId,
-        answer
-      });
+    // User left
+    socket.on("user-left", (id: string) => {
+      console.log("User left:", id);
+      setParticipants(prev => prev.filter(p => p.id !== id));
+      // If that peer was streaming to us, clear the remote stream
+      setRemoteStream(null);
     });
 
-    socket.on("answer", async (data) => {
+    // ---- Signalling ----
+
+    socket.on("offer", async (data: { offer: RTCSessionDescriptionInit }) => {
+      console.log("Offer received — creating answer");
+      const pc = initPC();          // fresh connection per offer
+
+      await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+
+      socket.emit("answer", { roomId: meetingId, answer });
+    });
+
+    socket.on("answer", async (data: { answer: RTCSessionDescriptionInit }) => {
       console.log("Answer received");
-
-      await peerConnection.setRemoteDescription(
-        new RTCSessionDescription(data.answer)
-      );
+      if (!pcRef.current) return;
+      try {
+        await pcRef.current.setRemoteDescription(new RTCSessionDescription(data.answer));
+      } catch (err) {
+        console.error("setRemoteDescription (answer) failed:", err);
+      }
     });
 
-    socket.on("ice-candidate", async (data) => {
-      await peerConnection.addIceCandidate(
-        new RTCIceCandidate(data.candidate)
-      );
+    socket.on("ice-candidate", async (data: { candidate: RTCIceCandidateInit }) => {
+      if (!pcRef.current) return;
+      try {
+        await pcRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
+      } catch (err) {
+        console.warn("addIceCandidate failed:", err);
+      }
     });
 
     return () => {
@@ -168,10 +202,17 @@ export default function Meeting() {
       socket.off("answer");
       socket.off("ice-candidate");
     };
+  }, [meetingId, user?.name, initPC, sendOffer]);
 
-  }, [meetingId, user?.name]);
+  /* ---- Attach remote stream to video element when either changes ---- */
 
-  /* ---------------- LOCAL VIDEO ---------------- */
+  useEffect(() => {
+    if (remoteVideoRef.current && remoteStream) {
+      remoteVideoRef.current.srcObject = remoteStream;
+    }
+  }, [remoteStream]);
+
+  /* ---- Attach local stream to video element when video turns on ---- */
 
   useEffect(() => {
     if (hasLocalVideo && localVideoRef.current && localStreamRef.current) {
@@ -179,8 +220,9 @@ export default function Meeting() {
     }
   }, [hasLocalVideo]);
 
-  const startVideo = useCallback(async () => {
+  /* ---------------- VIDEO TOGGLE ---------------- */
 
+  const startVideo = useCallback(async () => {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: true,
       audio: false
@@ -193,20 +235,45 @@ export default function Meeting() {
     }
 
     localStreamRef.current.addTrack(videoTrack);
-    peerConnection.addTrack(videoTrack, localStreamRef.current);
+
+    // Always start with a fresh peer connection so we never hit "invalid state"
+    const pc = initPC(); // this also delivers the track to the connection
+    // initPC re-adds tracks from localStreamRef — but we just added the video
+    // track there, so it's included. No need to addTrack again.
 
     setHasLocalVideo(true);
     setIsVideoOff(false);
 
-    // create offer AFTER camera ready
-    createOffer();
+    // Send offer AFTER the track is in the connection
+    await sendOffer(pc);
+  }, [initPC, sendOffer]);
 
-  }, []);
+  const handleToggleVideo = () => {
+    if (isVideoOff) {
+      startVideo();
+    } else {
+      // Turn camera OFF — stop tracks and remove from stream
+      if (localStreamRef.current) {
+        localStreamRef.current.getVideoTracks().forEach(track => {
+          track.stop();
+          localStreamRef.current?.removeTrack(track);
+        });
+      }
+      setIsVideoOff(true);
+      setHasLocalVideo(false);
+
+      // Close the connection; the remote peer will receive user-left or can
+      // detect the track ending via ontrack/removetrack on their side.
+      if (pcRef.current) {
+        pcRef.current.close();
+        pcRef.current = null;
+      }
+    }
+  };
 
   /* ---------------- MUTE ---------------- */
 
   const handleToggleMute = async () => {
-
     if (!localStreamRef.current) {
       localStreamRef.current = new MediaStream();
     }
@@ -217,37 +284,19 @@ export default function Meeting() {
       const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       audioTrack = audioStream.getAudioTracks()[0];
       localStreamRef.current.addTrack(audioTrack);
-      peerConnection.addTrack(audioTrack, localStreamRef.current);
+      pcRef.current?.addTrack(audioTrack, localStreamRef.current);
     }
 
     audioTrack.enabled = !audioTrack.enabled;
     setIsMuted(!audioTrack.enabled);
   };
 
-  /* ---------------- VIDEO TOGGLE ---------------- */
-
-  const handleToggleVideo = () => {
-    if (isVideoOff) {
-      // Turn camera ON
-      startVideo();
-    } else {
-      // Turn camera OFF
-      if (localStreamRef.current) {
-        const videoTracks = localStreamRef.current.getVideoTracks();
-        videoTracks.forEach(track => {
-          track.stop();
-          localStreamRef.current?.removeTrack(track);
-        });
-      }
-      setIsVideoOff(true);
-      setHasLocalVideo(false);
-    }
-  };
-
   /* ---------------- LEAVE ---------------- */
 
   const handleLeave = () => {
     localStreamRef.current?.getTracks().forEach(t => t.stop());
+    pcRef.current?.close();
+    pcRef.current = null;
     socket.disconnect();
     navigate("/home");
   };
@@ -303,7 +352,10 @@ export default function Meeting() {
               key={p.id}
               name={p.name}
               isMuted={true}
-              hasVideo={false}
+              isLocal={false}
+              mirror={true}
+              hasVideo={!!remoteStream}
+              videoRef={remoteVideoRef}
             />
           ))}
 
@@ -314,18 +366,18 @@ export default function Meeting() {
         isMuted={isMuted}
         isVideoOff={isVideoOff}
         isScreenSharing={false}
-        isChatOpen={false}
-        isParticipantsOpen={false}
+        isChatOpen={isChatOpen}
+        isParticipantsOpen={isParticipantsOpen}
         onToggleMute={handleToggleMute}
         onToggleVideo={handleToggleVideo}
-        onToggleScreenShare={() => {}}
-        onToggleChat={() => {}}
-        onToggleParticipants={() => {}}
+        onToggleScreenShare={() => { }}
+        onToggleChat={() => setIsChatOpen(v => !v)}
+        onToggleParticipants={() => setIsParticipantsOpen(v => !v)}
         onLeave={handleLeave}
       />
 
-      <ChatPanel isOpen={false} onClose={() => {}} />
-      <ParticipantsPanel isOpen={false} onClose={() => {}} />
+      <ChatPanel isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
+      <ParticipantsPanel isOpen={isParticipantsOpen} onClose={() => setIsParticipantsOpen(false)} />
 
     </div>
   );
