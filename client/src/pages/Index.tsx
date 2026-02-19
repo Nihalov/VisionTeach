@@ -89,7 +89,7 @@ export default function Index() {
           </div>
 
           {/* Preview Image */}
-          <div className="mt-20 animate-slide-up" style={{ animationDelay: '200ms' }}>
+          {/* <div className="mt-20 animate-slide-up" style={{ animationDelay: '200ms' }}>
             <div className="relative rounded-2xl overflow-hidden glass-strong p-1 glow-effect">
               <div className="aspect-video rounded-xl overflow-hidden bg-muted/50 flex items-center justify-center">
                 <div className="grid grid-cols-2 gap-4 p-8 w-full max-w-3xl">
@@ -105,7 +105,7 @@ export default function Index() {
                 </div>
               </div>
             </div>
-          </div>
+          </div> */}
         </div>
       </div>
 
