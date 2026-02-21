@@ -5,6 +5,7 @@ import ChatPanel from "@/components/ChatPanel";
 import ParticipantsPanel from "@/components/ParticipantsPanel";
 import ControlBar from "@/components/ControlBar";
 import { useAuth } from "@/hooks/useAuth";
+import { useHandLandmarks } from "@/hooks/useHandLandmarks";
 import { Shield, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { socket } from "../services/socket";
@@ -23,12 +24,14 @@ export default function Meeting() {
   const [copied, setCopied] = useState(false);
   const [localSocketId, setLocalSocketId] = useState<string | null>(null);
   const [participants, setParticipants] = useState<{ id: string; name: string }[]>([]);
+  const [isGestureActive, setIsGestureActive] = useState(false);
 
   /* ---------------- REFS ---------------- */
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const localCanvasRef = useRef<HTMLCanvasElement>(null);
 
   // Store the active RTCPeerConnection in a ref so it's accessible everywhere
   // without triggering re-renders, and so we can close/replace it cleanly.
@@ -39,6 +42,10 @@ export default function Meeting() {
   const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const meetingId = "abc-defg-hij";
+
+  /* ---------------- HAND LANDMARKS ---------------- */
+
+  const { isDetecting, startDetection, stopDetection } = useHandLandmarks();
 
   /* ---------------- AUTH GUARD ---------------- */
 
@@ -262,6 +269,12 @@ export default function Meeting() {
       setIsVideoOff(true);
       setHasLocalVideo(false);
 
+      // Auto-stop gesture detection when camera is turned off
+      if (isDetecting) {
+        stopDetection(localCanvasRef.current);
+        setIsGestureActive(false);
+      }
+
       // Close the connection; the remote peer will receive user-left or can
       // detect the track ending via ontrack/removetrack on their side.
       if (pcRef.current) {
@@ -294,11 +307,27 @@ export default function Meeting() {
   /* ---------------- LEAVE ---------------- */
 
   const handleLeave = () => {
+    stopDetection(localCanvasRef.current);
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     pcRef.current?.close();
     pcRef.current = null;
     socket.disconnect();
     navigate("/home");
+  };
+
+  /* ---------------- GESTURE TOGGLE ---------------- */
+
+  const handleToggleGesture = () => {
+    if (isGestureActive) {
+      stopDetection(localCanvasRef.current);
+      setIsGestureActive(false);
+    } else {
+      // Only start if camera is on
+      if (!isVideoOff && localVideoRef.current && localCanvasRef.current) {
+        startDetection(localVideoRef.current, localCanvasRef.current);
+        setIsGestureActive(true);
+      }
+    }
   };
 
   /* ---------------- COPY ---------------- */
@@ -341,6 +370,7 @@ export default function Meeting() {
           isMuted={isMuted}
           isLocal
           videoRef={localVideoRef}
+          canvasRef={localCanvasRef}
           hasVideo={hasLocalVideo}
         />
 
@@ -368,11 +398,13 @@ export default function Meeting() {
         isScreenSharing={false}
         isChatOpen={isChatOpen}
         isParticipantsOpen={isParticipantsOpen}
+        isGestureActive={isGestureActive}
         onToggleMute={handleToggleMute}
         onToggleVideo={handleToggleVideo}
         onToggleScreenShare={() => { }}
         onToggleChat={() => setIsChatOpen(v => !v)}
         onToggleParticipants={() => setIsParticipantsOpen(v => !v)}
+        onToggleGesture={handleToggleGesture}
         onLeave={handleLeave}
       />
 

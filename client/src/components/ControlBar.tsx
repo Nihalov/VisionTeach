@@ -19,13 +19,13 @@ interface ControlBarProps {
   isScreenSharing: boolean;
   isChatOpen: boolean;
   isParticipantsOpen: boolean;
-  // isDrawingActive: boolean;
+  isGestureActive?: boolean;
   onToggleMute: () => void;
   onToggleVideo: () => void;
   onToggleScreenShare: () => void;
   onToggleChat: () => void;
   onToggleParticipants: () => void;
-  // onToggleDrawing: () => void;
+  onToggleGesture?: () => void;
   onLeave: () => void;
 }
 
@@ -35,13 +35,13 @@ export default function ControlBar({
   isScreenSharing,
   isChatOpen,
   isParticipantsOpen,
-  // isDrawingActive,
+  isGestureActive = false,
   onToggleMute,
   onToggleVideo,
   onToggleScreenShare,
   onToggleChat,
   onToggleParticipants,
-  // onToggleDrawing,
+  onToggleGesture,
   onLeave,
 }: ControlBarProps) {
   return (
@@ -90,8 +90,13 @@ export default function ControlBar({
             <Pencil className="w-5 h-5" />
           </Button> */}
 
-          {/* Raise Hand */}
-          <Button variant="control" size="iconLg" title="Raise hand">
+          {/* Hand Tracking */}
+          <Button
+            variant={isGestureActive ? 'gradient' : 'control'}
+            size="iconLg"
+            onClick={onToggleGesture}
+            title={isGestureActive ? 'Stop hand tracking' : 'Start hand tracking'}
+          >
             <Hand className="w-5 h-5" />
           </Button>
 
