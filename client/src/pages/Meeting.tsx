@@ -45,7 +45,8 @@ export default function Meeting() {
 
   /* ---------------- HAND LANDMARKS ---------------- */
 
-  const { isDetecting, startDetection, stopDetection } = useHandLandmarks();
+  const { isDetecting, startDetection, stopDetection, isDrawingMode, setIsDrawingMode, clearDrawing } = useHandLandmarks();
+  const drawCanvasRef = useRef<HTMLCanvasElement>(null);
 
   /* ---------------- AUTH GUARD ---------------- */
 
@@ -273,6 +274,7 @@ export default function Meeting() {
       if (isDetecting) {
         stopDetection(localCanvasRef.current);
         setIsGestureActive(false);
+        setIsDrawingMode(false);
       }
 
       // Close the connection; the remote peer will receive user-left or can
@@ -324,10 +326,20 @@ export default function Meeting() {
     } else {
       // Only start if camera is on
       if (!isVideoOff && localVideoRef.current && localCanvasRef.current) {
-        startDetection(localVideoRef.current, localCanvasRef.current);
+        startDetection(localVideoRef.current, localCanvasRef.current, drawCanvasRef.current);
         setIsGestureActive(true);
       }
     }
+  };
+
+  /* ---------------- DRAWING TOGGLE ---------------- */
+
+  const handleToggleDrawing = () => {
+    setIsDrawingMode(!isDrawingMode);
+  };
+
+  const handleClearDrawing = () => {
+    clearDrawing();
   };
 
   /* ---------------- COPY ---------------- */
@@ -371,6 +383,7 @@ export default function Meeting() {
           isLocal
           videoRef={localVideoRef}
           canvasRef={localCanvasRef}
+          drawCanvasRef={drawCanvasRef}
           hasVideo={hasLocalVideo}
         />
 
@@ -399,12 +412,15 @@ export default function Meeting() {
         isChatOpen={isChatOpen}
         isParticipantsOpen={isParticipantsOpen}
         isGestureActive={isGestureActive}
+        isDrawingActive={isDrawingMode}
         onToggleMute={handleToggleMute}
         onToggleVideo={handleToggleVideo}
         onToggleScreenShare={() => { }}
         onToggleChat={() => setIsChatOpen(v => !v)}
         onToggleParticipants={() => setIsParticipantsOpen(v => !v)}
         onToggleGesture={handleToggleGesture}
+        onToggleDrawing={handleToggleDrawing}
+        onClearDrawing={handleClearDrawing}
         onLeave={handleLeave}
       />
 

@@ -8,7 +8,8 @@ interface VideoTileProps {
   isLocal?: boolean;
   mirror?: boolean;
   videoRef?: React.Ref<HTMLVideoElement>;
-  canvasRef?: React.RefObject<HTMLCanvasElement>; // Added for VisionTeach drawing
+  canvasRef?: React.RefObject<HTMLCanvasElement>;
+  drawCanvasRef?: React.RefObject<HTMLCanvasElement>;
   hasVideo?: boolean;
 }
 
@@ -21,13 +22,13 @@ export default function VideoTile({
   mirror = isLocal,
   videoRef,
   canvasRef,
+  drawCanvasRef,
   hasVideo = false,
 }: VideoTileProps) {
   return (
     <div
-      className={`video-tile group relative overflow-hidden bg-background ${
-        isPinned ? 'ring-2 ring-primary glow-effect' : ''
-      }`}
+      className={`video-tile group relative overflow-hidden bg-background ${isPinned ? 'ring-2 ring-primary glow-effect' : ''
+        }`}
     >
       {/* MEDIA LAYER 
         We wrap Video and Canvas here.
@@ -41,19 +42,24 @@ export default function VideoTile({
               ref={videoRef}
               autoPlay
               playsInline
-              muted={isLocal} // Always mute local video to prevent echo
+              muted={isLocal}
               className="absolute inset-0 w-full h-full object-cover"
             />
-            {/* The Canvas for Air Drawing.
-               It sits exactly on top of the video inside the flipped container.
-            */}
-            <canvas 
+            {/* Hidden off-screen canvas that accumulates persistent drawings.
+               Not visible directly — composited into the main canvas each frame. */}
+            <canvas
+              ref={drawCanvasRef}
+              className="absolute inset-0 w-full h-full pointer-events-none"
+              style={{ display: 'none' }}
+            />
+            {/* Main canvas: video frame + drawing layer + landmarks */}
+            <canvas
               ref={canvasRef}
               className="absolute inset-0 w-full h-full"
             />
           </>
         ) : (
-          /* Avatar Fallback (Unflipped usually, or flipped if you prefer consistency) */
+          /* Avatar Fallback */
           <div className={`absolute inset-0 flex items-center justify-center bg-gradient-to-br from-muted to-muted/50 ${isLocal ? 'scale-x-[-1]' : ''}`}>
             {avatar ? (
               <img

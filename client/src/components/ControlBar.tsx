@@ -9,7 +9,8 @@ import {
   Phone,
   MoreHorizontal,
   Hand,
-  // Pencil,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -20,12 +21,15 @@ interface ControlBarProps {
   isChatOpen: boolean;
   isParticipantsOpen: boolean;
   isGestureActive?: boolean;
+  isDrawingActive?: boolean;
   onToggleMute: () => void;
   onToggleVideo: () => void;
   onToggleScreenShare: () => void;
   onToggleChat: () => void;
   onToggleParticipants: () => void;
   onToggleGesture?: () => void;
+  onToggleDrawing?: () => void;
+  onClearDrawing?: () => void;
   onLeave: () => void;
 }
 
@@ -36,12 +40,15 @@ export default function ControlBar({
   isChatOpen,
   isParticipantsOpen,
   isGestureActive = false,
+  isDrawingActive = false,
   onToggleMute,
   onToggleVideo,
   onToggleScreenShare,
   onToggleChat,
   onToggleParticipants,
   onToggleGesture,
+  onToggleDrawing,
+  onClearDrawing,
   onLeave,
 }: ControlBarProps) {
   return (
@@ -80,16 +87,6 @@ export default function ControlBar({
 
           <div className="w-px h-8 bg-border" />
 
-          {/* Drawing */}
-          {/* <Button
-            variant={isDrawingActive ? 'gradient' : 'control'}
-            size="iconLg"
-            onClick={onToggleDrawing}
-            title="Air Drawing"
-          >
-            <Pencil className="w-5 h-5" />
-          </Button> */}
-
           {/* Hand Tracking */}
           <Button
             variant={isGestureActive ? 'gradient' : 'control'}
@@ -99,6 +96,30 @@ export default function ControlBar({
           >
             <Hand className="w-5 h-5" />
           </Button>
+
+          {/* Air Drawing — only shown when gesture detection is active */}
+          {isGestureActive && (
+            <Button
+              variant={isDrawingActive ? 'gradient' : 'control'}
+              size="iconLg"
+              onClick={onToggleDrawing}
+              title={isDrawingActive ? 'Stop air drawing' : 'Start air drawing'}
+            >
+              <Pencil className="w-5 h-5" />
+            </Button>
+          )}
+
+          {/* Clear Drawing — only shown when drawing is active */}
+          {isDrawingActive && (
+            <Button
+              variant="control"
+              size="iconLg"
+              onClick={onClearDrawing}
+              title="Clear drawing"
+            >
+              <Trash2 className="w-5 h-5" />
+            </Button>
+          )}
 
           <div className="w-px h-8 bg-border" />
 
