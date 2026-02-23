@@ -1,4 +1,6 @@
+import { useRef, useEffect, useCallback } from 'react';
 import { Mic, MicOff, Pin } from 'lucide-react';
+import type { DrawEvent } from '@/hooks/useHandLandmarks';
 
 interface VideoTileProps {
   name: string;
@@ -12,6 +14,8 @@ interface VideoTileProps {
   drawCanvasRef?: React.RefObject<HTMLCanvasElement>;
   hasVideo?: boolean;
   onPin?: () => void;
+  /** Callback setter — parent stores a function here so it can push draw events to us */
+  remoteDrawRef?: React.MutableRefObject<((evt: DrawEvent) => void) | null>;
 }
 
 export default function VideoTile({
@@ -26,7 +30,102 @@ export default function VideoTile({
   drawCanvasRef,
   hasVideo = false,
   onPin,
+  remoteDrawRef,
 }: VideoTileProps) {
+
+  // Canvas for rendering remote peer's drawings
+  const remoteDrawCanvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Process incoming draw events and render them onto the remote draw canvas
+  const handleRemoteDrawEvent = useCallback((evt: DrawEvent) => {
+    const canvas = remoteDrawCanvasRef.current;
+    if (!canvas) return;
+
+    // Ensure canvas dimensions match display size
+    const dW = canvas.clientWidth;
+    const dH = canvas.clientHeight;
+    if (canvas.width !== dW || canvas.height !== dH) {
+      // Preserve existing drawing when resizing
+      const tmp = document.createElement('canvas');
+      tmp.width = canvas.width;
+      tmp.height = canvas.height;
+      tmp.getContext('2d')?.drawImage(canvas, 0, 0);
+      canvas.width = dW;
+      canvas.height = dH;
+      canvas.getContext('2d')?.drawImage(tmp, 0, 0, dW, dH);
+    }
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    switch (evt.t) {
+      case 'draw': {
+        const pts = evt.pts.map(([nx, ny]) => ({ x: nx * dW, y: ny * dH }));
+        if (pts.length < 2) return;
+
+        ctx.beginPath();
+        ctx.moveTo(pts[0].x, pts[0].y);
+
+        if (pts.length === 2) {
+          ctx.lineTo(pts[1].x, pts[1].y);
+        } else {
+          for (let k = 1; k < pts.length - 1; k++) {
+            const cpX = (pts[k].x + pts[k + 1].x) / 2;
+            const cpY = (pts[k].y + pts[k + 1].y) / 2;
+            ctx.quadraticCurveTo(pts[k].x, pts[k].y, cpX, cpY);
+          }
+          ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+        }
+
+        ctx.strokeStyle = evt.c;
+        ctx.lineWidth = evt.w;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.shadowBlur = evt.w * 2;
+        ctx.shadowColor = evt.c;
+        ctx.stroke();
+        // Inner glow pass
+        ctx.shadowBlur = evt.w * 0.8;
+        ctx.lineWidth = evt.w * 0.5;
+        ctx.globalAlpha = 0.7;
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+        ctx.shadowBlur = 0;
+        break;
+      }
+      case 'erase': {
+        const ex = evt.x * dW;
+        const ey = evt.y * dH;
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.beginPath();
+        ctx.arc(ex, ey, evt.w * 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        break;
+      }
+      case 'clear': {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        break;
+      }
+      case 'up':
+        // No-op on remote — just signals stroke end
+        break;
+    }
+  }, []);
+
+  // Register the handler so the parent (Meeting.tsx) can push events to us
+  useEffect(() => {
+    if (remoteDrawRef) {
+      remoteDrawRef.current = handleRemoteDrawEvent;
+    }
+    return () => {
+      if (remoteDrawRef) {
+        remoteDrawRef.current = null;
+      }
+    };
+  }, [remoteDrawRef, handleRemoteDrawEvent]);
+
   return (
     <div
       className={`video-tile group relative overflow-hidden bg-background ${isPinned ? 'ring-2 ring-primary glow-effect' : ''
@@ -52,6 +151,14 @@ export default function VideoTile({
               ref={canvasRef}
               className="absolute inset-0 w-full h-full"
             />
+            {/* Remote peer's drawing overlay */}
+            {!isLocal && (
+              <canvas
+                ref={remoteDrawCanvasRef}
+                className="absolute inset-0 w-full h-full pointer-events-none"
+                style={{ zIndex: 5 }}
+              />
+            )}
           </>
         ) : (
           <div className={`absolute inset-0 flex items-center justify-center bg-gradient-to-br from-muted to-muted/50 ${isLocal ? 'scale-x-[-1]' : ''}`}>

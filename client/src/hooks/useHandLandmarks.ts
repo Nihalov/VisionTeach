@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, useEffect } from "react";
+import { useRef, useState, useCallback, useEffect, MutableRefObject } from "react";
 import {
   HandLandmarker,
   FilesetResolver,
@@ -48,6 +48,15 @@ const SUB_GAP = 10;      // gap between sub-items
 // Menu states
 type MenuState = "collapsed" | "expanded" | "colors" | "widths";
 
+// ── Drawing event types (sent over DataChannel) ───────────────────
+export type DrawEvent =
+  | { t: "draw"; pts: [number, number][]; c: string; w: number }
+  | { t: "up" }
+  | { t: "erase"; x: number; y: number; w: number }
+  | { t: "clear" };
+
+export type OnDrawEventFn = (event: DrawEvent) => void;
+
 // ────────────────────────────────────────────────────────────────────
 export function useHandLandmarks() {
   const handLandmarkerRef = useRef<HandLandmarker | null>(null);
@@ -66,6 +75,9 @@ export function useHandLandmarks() {
   const drawWidthRef = useRef<number>(LINE_WIDTHS[1].value);
   const isEraserRef = useRef(false);
   const [activeToolName, setActiveToolName] = useState<string>(DRAWING_COLORS[0].name);
+
+  // ── Draw event callback (wired by Meeting.tsx to send over DataChannel) ──
+  const onDrawEventRef = useRef<OnDrawEventFn | null>(null);
 
   // ── Toolbar menu state (ref for rAF loop) ────────────────────────
   const menuStateRef = useRef<MenuState>("collapsed");
@@ -99,6 +111,8 @@ export function useHandLandmarks() {
     if (!dc) return;
     const ctx = dc.getContext("2d");
     ctx?.clearRect(0, 0, dc.width, dc.height);
+    // Emit clear event to remote peer
+    onDrawEventRef.current?.({ t: "clear" });
   }, []);
 
   // ═══════════════════════════════════════════════════════════════════
@@ -334,6 +348,13 @@ export function useHandLandmarks() {
                       dcCtx.arc(sp.x, sp.y, drawWidthRef.current * 3, 0, Math.PI * 2);
                       dcCtx.fill();
                       dcCtx.restore();
+                      // Emit erase event (normalized)
+                      onDrawEventRef.current?.({
+                        t: "erase",
+                        x: sp.x / displayW,
+                        y: sp.y / displayH,
+                        w: drawWidthRef.current,
+                      });
                     } else {
                       // Add smoothed point to ring buffer
                       pointBufRef.current.push({ x: sp.x, y: sp.y });
@@ -372,11 +393,22 @@ export function useHandLandmarks() {
                         dcCtx.stroke();
                         dcCtx.globalAlpha = 1;
                         dcCtx.shadowBlur = 0;
+
+                        // Emit draw event (normalized coordinates)
+                        onDrawEventRef.current?.({
+                          t: "draw",
+                          pts: buf.map(p => [p.x / displayW, p.y / displayH] as [number, number]),
+                          c: color,
+                          w: lw,
+                        });
                       }
                     }
                   }
                 } else {
-                  // Pen lifted — reset buffers
+                  // Pen lifted — reset buffers & emit "up" event
+                  if (wasPinchingRef.current) {
+                    onDrawEventRef.current?.({ t: "up" });
+                  }
                   smoothPointRef.current = null;
                   pointBufRef.current = [];
                 }
@@ -634,5 +666,6 @@ export function useHandLandmarks() {
     setIsDrawingMode,
     clearDrawing,
     activeToolName,
+    onDrawEventRef,
   };
 }

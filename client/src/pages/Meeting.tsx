@@ -6,6 +6,7 @@ import ParticipantsPanel from "@/components/ParticipantsPanel";
 import ControlBar from "@/components/ControlBar";
 import { useAuth } from "@/hooks/useAuth";
 import { useHandLandmarks } from "@/hooks/useHandLandmarks";
+import type { DrawEvent } from "@/hooks/useHandLandmarks";
 import { Shield, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { socket } from "../services/socket";
@@ -46,8 +47,14 @@ export default function Meeting() {
 
   /* ---------------- HAND LANDMARKS ---------------- */
 
-  const { isDetecting, startDetection, stopDetection, isDrawingMode, setIsDrawingMode, clearDrawing, activeToolName } = useHandLandmarks();
+  const { isDetecting, startDetection, stopDetection, isDrawingMode, setIsDrawingMode, clearDrawing, activeToolName, onDrawEventRef } = useHandLandmarks();
   const drawCanvasRef = useRef<HTMLCanvasElement>(null);
+
+  /* ---------------- DATA CHANNEL FOR DRAWING ---------------- */
+
+  const drawChannelRef = useRef<RTCDataChannel | null>(null);
+  // Ref that VideoTile populates — we call this function when remote draw data arrives
+  const remoteDrawHandlerRef = useRef<((evt: DrawEvent) => void) | null>(null);
 
   /* ---------------- AUTH GUARD ---------------- */
 
@@ -61,6 +68,24 @@ export default function Meeting() {
    * Create (or recreate) a fresh RTCPeerConnection, wiring all the callbacks.
    * If there is an old connection it is closed first.
    */
+  /**
+   * Helper: wire up a DataChannel (either one we created or one we received)
+   */
+  const setupDrawChannel = useCallback((channel: RTCDataChannel) => {
+    drawChannelRef.current = channel;
+
+    channel.onopen = () => console.log("Draw DataChannel open");
+    channel.onclose = () => console.log("Draw DataChannel closed");
+
+    channel.onmessage = (e) => {
+      try {
+        const evt: DrawEvent = JSON.parse(e.data);
+        // Forward to VideoTile's remote draw handler
+        remoteDrawHandlerRef.current?.(evt);
+      } catch { /* ignore malformed */ }
+    };
+  }, []);
+
   const initPC = useCallback(() => {
     // Close existing connection cleanly before creating a new one
     if (pcRef.current) {
@@ -68,6 +93,7 @@ export default function Meeting() {
       pcRef.current.onicecandidate = null;
       pcRef.current.close();
     }
+    drawChannelRef.current = null;
 
     const pc = createPeerConnection();
     pcRef.current = pc;
@@ -78,6 +104,18 @@ export default function Meeting() {
         pc.addTrack(track, localStreamRef.current!);
       });
     }
+
+    // --- Create a DataChannel for drawing (offerer side) ---
+    const dc = pc.createDataChannel("draw", { ordered: true });
+    setupDrawChannel(dc);
+
+    // --- Receive DataChannel (answerer side) ---
+    pc.ondatachannel = (event) => {
+      console.log("Received DataChannel:", event.channel.label);
+      if (event.channel.label === "draw") {
+        setupDrawChannel(event.channel);
+      }
+    };
 
     pc.ontrack = (event) => {
       console.log("ontrack fired, got stream", event.streams[0]);
@@ -99,7 +137,7 @@ export default function Meeting() {
     };
 
     return pc;
-  }, [meetingId]);
+  }, [meetingId, setupDrawChannel]);
 
   /**
    * Build an offer on the current (or a freshly created) connection and
@@ -318,6 +356,18 @@ export default function Meeting() {
     navigate("/home");
   };
 
+  /* ----------- WIRE DRAW EVENTS → DATA CHANNEL ----------- */
+
+  useEffect(() => {
+    onDrawEventRef.current = (evt: DrawEvent) => {
+      const ch = drawChannelRef.current;
+      if (ch && ch.readyState === "open") {
+        ch.send(JSON.stringify(evt));
+      }
+    };
+    return () => { onDrawEventRef.current = null; };
+  }, [onDrawEventRef]);
+
   /* ---------------- GESTURE TOGGLE ---------------- */
 
   const handleToggleGesture = () => {
@@ -386,6 +436,7 @@ export default function Meeting() {
             videoRef: localVideoRef,
             canvasRef: localCanvasRef,
             drawCanvasRef: drawCanvasRef,
+            remoteDrawRef: undefined as React.MutableRefObject<((evt: DrawEvent) => void) | null> | undefined,
             hasVideo: hasLocalVideo,
             mirror: true,
           },
@@ -397,6 +448,7 @@ export default function Meeting() {
               isMuted: true,
               isLocal: false,
               videoRef: remoteVideoRef,
+              remoteDrawRef: remoteDrawHandlerRef,
               canvasRef: undefined as React.RefObject<HTMLCanvasElement> | undefined,
               drawCanvasRef: undefined as React.RefObject<HTMLCanvasElement> | undefined,
               hasVideo: !!remoteStream,
@@ -423,6 +475,7 @@ export default function Meeting() {
                   drawCanvasRef={pinnedTile.drawCanvasRef}
                   hasVideo={pinnedTile.hasVideo}
                   isPinned={true}
+                  remoteDrawRef={pinnedTile.remoteDrawRef}
                   onPin={() => setPinnedId(null)}
                 />
               </div>
@@ -441,6 +494,7 @@ export default function Meeting() {
                         drawCanvasRef={t.drawCanvasRef}
                         hasVideo={t.hasVideo}
                         isPinned={false}
+                        remoteDrawRef={t.remoteDrawRef}
                         onPin={() => setPinnedId(t.id)}
                       />
                     </div>
@@ -466,6 +520,7 @@ export default function Meeting() {
                 drawCanvasRef={t.drawCanvasRef}
                 hasVideo={t.hasVideo}
                 isPinned={false}
+                remoteDrawRef={t.remoteDrawRef}
                 onPin={() => setPinnedId(t.id)}
               />
             ))}
