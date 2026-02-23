@@ -11,6 +11,7 @@ interface VideoTileProps {
   canvasRef?: React.RefObject<HTMLCanvasElement>;
   drawCanvasRef?: React.RefObject<HTMLCanvasElement>;
   hasVideo?: boolean;
+  onPin?: () => void;
 }
 
 export default function VideoTile({
@@ -24,17 +25,14 @@ export default function VideoTile({
   canvasRef,
   drawCanvasRef,
   hasVideo = false,
+  onPin,
 }: VideoTileProps) {
   return (
     <div
       className={`video-tile group relative overflow-hidden bg-background ${isPinned ? 'ring-2 ring-primary glow-effect' : ''
         }`}
     >
-      {/* MEDIA LAYER 
-        We wrap Video and Canvas here.
-        If isLocal is true, we flip this ENTIRE container using scale-x-[-1].
-        This ensures the "Ink" on the canvas flips exactly with the video.
-      */}
+      {/* MEDIA LAYER */}
       <div className={`absolute inset-0 w-full h-full ${mirror ? 'scale-x-[-1]' : ''}`}>
         {hasVideo && videoRef ? (
           <>
@@ -45,21 +43,17 @@ export default function VideoTile({
               muted={isLocal}
               className="absolute inset-0 w-full h-full object-cover"
             />
-            {/* Hidden off-screen canvas that accumulates persistent drawings.
-               Not visible directly — composited into the main canvas each frame. */}
             <canvas
               ref={drawCanvasRef}
               className="absolute inset-0 w-full h-full pointer-events-none"
               style={{ display: 'none' }}
             />
-            {/* Main canvas: video frame + drawing layer + landmarks */}
             <canvas
               ref={canvasRef}
               className="absolute inset-0 w-full h-full"
             />
           </>
         ) : (
-          /* Avatar Fallback */
           <div className={`absolute inset-0 flex items-center justify-center bg-gradient-to-br from-muted to-muted/50 ${isLocal ? 'scale-x-[-1]' : ''}`}>
             {avatar ? (
               <img
@@ -76,9 +70,7 @@ export default function VideoTile({
         )}
       </div>
 
-      {/* UI OVERLAY LAYER 
-        These elements are OUTSIDE the flipped container, so text remains readable.
-      */}
+      {/* UI OVERLAY */}
 
       {/* Gradient Overlay */}
       <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
@@ -95,11 +87,20 @@ export default function VideoTile({
         )}
       </div>
 
-      {/* Pin Indicator */}
-      {isPinned && (
-        <div className="absolute top-3 right-3 p-2 rounded-lg bg-primary/80 backdrop-blur-sm shadow-sm">
-          <Pin className="w-4 h-4 text-white" />
-        </div>
+      {/* Pin Button — visible on hover, always visible if pinned */}
+      {onPin && (
+        <button
+          onClick={onPin}
+          title={isPinned ? 'Unpin' : 'Pin'}
+          className={`absolute top-3 right-3 p-2 rounded-lg backdrop-blur-sm shadow-sm
+            transition-all duration-200 cursor-pointer z-10
+            ${isPinned
+              ? 'bg-primary/80 opacity-100'
+              : 'bg-black/50 opacity-0 group-hover:opacity-100 hover:bg-primary/60'
+            }`}
+        >
+          <Pin className={`w-4 h-4 text-white transition-transform ${isPinned ? 'rotate-45' : ''}`} />
+        </button>
       )}
 
       {/* Speaking Indicator */}

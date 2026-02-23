@@ -25,6 +25,7 @@ export default function Meeting() {
   const [localSocketId, setLocalSocketId] = useState<string | null>(null);
   const [participants, setParticipants] = useState<{ id: string; name: string }[]>([]);
   const [isGestureActive, setIsGestureActive] = useState(false);
+  const [pinnedId, setPinnedId] = useState<string | null>(null);
 
   /* ---------------- REFS ---------------- */
 
@@ -45,7 +46,7 @@ export default function Meeting() {
 
   /* ---------------- HAND LANDMARKS ---------------- */
 
-  const { isDetecting, startDetection, stopDetection, isDrawingMode, setIsDrawingMode, clearDrawing } = useHandLandmarks();
+  const { isDetecting, startDetection, stopDetection, isDrawingMode, setIsDrawingMode, clearDrawing, activeToolName } = useHandLandmarks();
   const drawCanvasRef = useRef<HTMLCanvasElement>(null);
 
   /* ---------------- AUTH GUARD ---------------- */
@@ -374,35 +375,103 @@ export default function Meeting() {
       </header>
 
       {/* VIDEO GRID */}
-      <div className="flex-1 grid grid-cols-2 gap-4 p-4">
+      {(() => {
+        // Build list of all tiles
+        const tiles = [
+          {
+            id: 'local' as string,
+            name: user?.name || 'You',
+            isMuted,
+            isLocal: true,
+            videoRef: localVideoRef,
+            canvasRef: localCanvasRef,
+            drawCanvasRef: drawCanvasRef,
+            hasVideo: hasLocalVideo,
+            mirror: true,
+          },
+          ...participants
+            .filter(p => p.id !== localSocketId)
+            .map(p => ({
+              id: p.id,
+              name: p.name,
+              isMuted: true,
+              isLocal: false,
+              videoRef: remoteVideoRef,
+              canvasRef: undefined as React.RefObject<HTMLCanvasElement> | undefined,
+              drawCanvasRef: undefined as React.RefObject<HTMLCanvasElement> | undefined,
+              hasVideo: !!remoteStream,
+              mirror: true,
+            })),
+        ];
 
-        {/* LOCAL */}
-        <VideoTile
-          name={user?.name || "You"}
-          isMuted={isMuted}
-          isLocal
-          videoRef={localVideoRef}
-          canvasRef={localCanvasRef}
-          drawCanvasRef={drawCanvasRef}
-          hasVideo={hasLocalVideo}
-        />
+        const pinnedTile = pinnedId ? tiles.find(t => t.id === pinnedId) : null;
+        const unpinnedTiles = pinnedId ? tiles.filter(t => t.id !== pinnedId) : tiles;
 
-        {/* REMOTES */}
-        {participants
-          .filter(p => p.id !== localSocketId)
-          .map(p => (
-            <VideoTile
-              key={p.id}
-              name={p.name}
-              isMuted={true}
-              isLocal={false}
-              mirror={true}
-              hasVideo={!!remoteStream}
-              videoRef={remoteVideoRef}
-            />
-          ))}
+        if (pinnedTile) {
+          // Spotlight layout: pinned tile large, others in sidebar
+          return (
+            <div className="flex-1 flex gap-3 p-4 overflow-hidden">
+              {/* Pinned – large */}
+              <div className="flex-1 min-w-0">
+                <VideoTile
+                  name={pinnedTile.name}
+                  isMuted={pinnedTile.isMuted}
+                  isLocal={pinnedTile.isLocal}
+                  mirror={pinnedTile.mirror}
+                  videoRef={pinnedTile.videoRef}
+                  canvasRef={pinnedTile.canvasRef}
+                  drawCanvasRef={pinnedTile.drawCanvasRef}
+                  hasVideo={pinnedTile.hasVideo}
+                  isPinned={true}
+                  onPin={() => setPinnedId(null)}
+                />
+              </div>
+              {/* Sidebar – unpinned tiles */}
+              {unpinnedTiles.length > 0 && (
+                <div className="w-64 flex flex-col gap-3 overflow-y-auto">
+                  {unpinnedTiles.map(t => (
+                    <div key={t.id} className="aspect-video flex-shrink-0">
+                      <VideoTile
+                        name={t.name}
+                        isMuted={t.isMuted}
+                        isLocal={t.isLocal}
+                        mirror={t.mirror}
+                        videoRef={t.videoRef}
+                        canvasRef={t.canvasRef}
+                        drawCanvasRef={t.drawCanvasRef}
+                        hasVideo={t.hasVideo}
+                        isPinned={false}
+                        onPin={() => setPinnedId(t.id)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        }
 
-      </div>
+        // Normal grid (no pin)
+        return (
+          <div className="flex-1 grid grid-cols-2 gap-4 p-4">
+            {tiles.map(t => (
+              <VideoTile
+                key={t.id}
+                name={t.name}
+                isMuted={t.isMuted}
+                isLocal={t.isLocal}
+                mirror={t.mirror}
+                videoRef={t.videoRef}
+                canvasRef={t.canvasRef}
+                drawCanvasRef={t.drawCanvasRef}
+                hasVideo={t.hasVideo}
+                isPinned={false}
+                onPin={() => setPinnedId(t.id)}
+              />
+            ))}
+          </div>
+        );
+      })()}
 
       {/* CONTROLS */}
       <ControlBar
@@ -413,6 +482,7 @@ export default function Meeting() {
         isParticipantsOpen={isParticipantsOpen}
         isGestureActive={isGestureActive}
         isDrawingActive={isDrawingMode}
+        activeToolName={activeToolName}
         onToggleMute={handleToggleMute}
         onToggleVideo={handleToggleVideo}
         onToggleScreenShare={() => { }}

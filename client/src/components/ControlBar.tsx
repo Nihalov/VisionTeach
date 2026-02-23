@@ -22,6 +22,7 @@ interface ControlBarProps {
   isParticipantsOpen: boolean;
   isGestureActive?: boolean;
   isDrawingActive?: boolean;
+  activeToolName?: string;
   onToggleMute: () => void;
   onToggleVideo: () => void;
   onToggleScreenShare: () => void;
@@ -41,6 +42,7 @@ export default function ControlBar({
   isParticipantsOpen,
   isGestureActive = false,
   isDrawingActive = false,
+  activeToolName = '',
   onToggleMute,
   onToggleVideo,
   onToggleScreenShare,
@@ -109,16 +111,25 @@ export default function ControlBar({
             </Button>
           )}
 
-          {/* Clear Drawing — only shown when drawing is active */}
+          {/* Clear Drawing + tool name — only shown when drawing is active */}
           {isDrawingActive && (
-            <Button
-              variant="control"
-              size="iconLg"
-              onClick={onClearDrawing}
-              title="Clear drawing"
-            >
-              <Trash2 className="w-5 h-5" />
-            </Button>
+            <>
+              <Button
+                variant="control"
+                size="iconLg"
+                onClick={onClearDrawing}
+                title="Clear drawing"
+              >
+                <Trash2 className="w-5 h-5" />
+              </Button>
+
+              {/* Active tool label */}
+              {activeToolName && (
+                <span className="text-xs font-medium text-muted-foreground px-2 select-none">
+                  {activeToolName}
+                </span>
+              )}
+            </>
           )}
 
           <div className="w-px h-8 bg-border" />
