@@ -11,6 +11,7 @@ import { Shield, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { socket } from "../services/socket";
 import { createPeerConnection } from "../services/webrtc";
+import { useSearchParams } from "react-router-dom";
 
 export default function Meeting() {
 
@@ -43,7 +44,8 @@ export default function Meeting() {
 
   const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
-  const meetingId = "abc-defg-hij";
+  const [searchParams] = useSearchParams();
+  const meetingId = searchParams.get("meetingId");
 
   /* ---------------- HAND LANDMARKS ---------------- */
 

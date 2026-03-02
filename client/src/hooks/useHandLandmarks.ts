@@ -31,9 +31,9 @@ export const DRAWING_COLORS = [
 ] as const;
 
 export const LINE_WIDTHS = [
-  { name: "Thin", value: 3 },
-  { name: "Medium", value: 5 },
-  { name: "Thick", value: 8 },
+  { name: "Thin", value: 1 },
+  { name: "Medium", value: 3 },
+  { name: "Thick", value: 5 },
 ] as const;
 
 export type DrawingColor = typeof DRAWING_COLORS[number]["value"];
