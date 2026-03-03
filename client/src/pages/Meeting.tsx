@@ -552,7 +552,26 @@ export default function Meeting() {
       />
 
       <ChatPanel isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
-      <ParticipantsPanel isOpen={isParticipantsOpen} onClose={() => setIsParticipantsOpen(false)} />
+      <ParticipantsPanel
+        isOpen={isParticipantsOpen}
+        onClose={() => setIsParticipantsOpen(false)}
+        participants={[
+          {
+            id: localSocketId || 'local',
+            name: user?.name || 'You',
+            isMuted,
+            isVideoOff,
+            isHost: true,
+          },
+          ...participants.map(p => ({
+            id: p.id,
+            name: p.name,
+            isMuted: true,
+            isVideoOff: false,
+            isHost: false,
+          })),
+        ]}
+      />
 
     </div>
   );

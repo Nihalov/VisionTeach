@@ -1,28 +1,22 @@
 import { X, Mic, MicOff, Video, VideoOff, MoreHorizontal, Crown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-interface Participant {
+export interface ParticipantInfo {
   id: string;
   name: string;
   avatar?: string;
-  isMuted: boolean;
-  isVideoOff: boolean;
+  // isMuted: boolean;
+  // isVideoOff: boolean;
   isHost: boolean;
 }
 
 interface ParticipantsPanelProps {
   isOpen: boolean;
   onClose: () => void;
+  participants: ParticipantInfo[];
 }
 
-const mockParticipants: Participant[] = [
-  { id: '1', name: 'You', isMuted: false, isVideoOff: false, isHost: true },
-  { id: '2', name: 'Sarah Chen', isMuted: true, isVideoOff: false, isHost: false },
-  { id: '3', name: 'Mike Johnson', isMuted: false, isVideoOff: true, isHost: false },
-  { id: '4', name: 'Emma Wilson', isMuted: true, isVideoOff: true, isHost: false },
-];
-
-export default function ParticipantsPanel({ isOpen, onClose }: ParticipantsPanelProps) {
+export default function ParticipantsPanel({ isOpen, onClose, participants }: ParticipantsPanelProps) {
   if (!isOpen) return null;
 
   return (
@@ -31,7 +25,7 @@ export default function ParticipantsPanel({ isOpen, onClose }: ParticipantsPanel
       <div className="flex items-center justify-between p-4 border-b border-border">
         <div>
           <h3 className="font-semibold text-foreground">Participants</h3>
-          <p className="text-sm text-muted-foreground">{mockParticipants.length} in meeting</p>
+          <p className="text-sm text-muted-foreground">{participants.length} in meeting</p>
         </div>
         <Button variant="ghost" size="icon" onClick={onClose}>
           <X className="w-5 h-5" />
@@ -40,7 +34,7 @@ export default function ParticipantsPanel({ isOpen, onClose }: ParticipantsPanel
 
       {/* Participants List */}
       <div className="flex-1 overflow-y-auto p-2">
-        {mockParticipants.map((participant) => (
+        {participants.map((participant) => (
           <div
             key={participant.id}
             className="flex items-center gap-3 p-3 rounded-xl hover:bg-muted/50 transition-colors group"
@@ -76,7 +70,7 @@ export default function ParticipantsPanel({ isOpen, onClose }: ParticipantsPanel
             </div>
 
             {/* Status Icons */}
-            <div className="flex items-center gap-1">
+            {/* <div className="flex items-center gap-1">
               {participant.isMuted ? (
                 <span className="p-1.5 rounded-lg bg-destructive/20">
                   <MicOff className="w-4 h-4 text-destructive" />
@@ -102,7 +96,7 @@ export default function ParticipantsPanel({ isOpen, onClose }: ParticipantsPanel
               >
                 <MoreHorizontal className="w-4 h-4" />
               </Button>
-            </div>
+            </div> */}
           </div>
         ))}
       </div>
