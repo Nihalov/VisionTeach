@@ -28,6 +28,7 @@ export default function Meeting() {
   const [participants, setParticipants] = useState<{ id: string; name: string }[]>([]);
   const [isGestureActive, setIsGestureActive] = useState(false);
   const [pinnedId, setPinnedId] = useState<string | null>(null);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   /* ---------------- REFS ---------------- */
 
@@ -543,7 +544,8 @@ export default function Meeting() {
         onToggleMute={handleToggleMute}
         onToggleVideo={handleToggleVideo}
         onToggleScreenShare={() => { }}
-        onToggleChat={() => setIsChatOpen(v => !v)}
+        onToggleChat={() => { setIsChatOpen(v => !v); setUnreadCount(0); }}
+        unreadCount={unreadCount}
         onToggleParticipants={() => setIsParticipantsOpen(v => !v)}
         onToggleGesture={handleToggleGesture}
         onToggleDrawing={handleToggleDrawing}
@@ -551,7 +553,13 @@ export default function Meeting() {
         onLeave={handleLeave}
       />
 
-      <ChatPanel isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
+      <ChatPanel
+        isOpen={isChatOpen}
+        onClose={() => setIsChatOpen(false)}
+        roomId={meetingId}
+        userName={user?.name || 'Guest'}
+        onNewMessage={() => { if (!isChatOpen) setUnreadCount(c => c + 1); }}
+      />
       <ParticipantsPanel
         isOpen={isParticipantsOpen}
         onClose={() => setIsParticipantsOpen(false)}

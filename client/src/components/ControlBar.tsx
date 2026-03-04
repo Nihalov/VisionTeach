@@ -32,6 +32,7 @@ interface ControlBarProps {
   onToggleDrawing?: () => void;
   onClearDrawing?: () => void;
   onLeave: () => void;
+  unreadCount?: number;
 }
 
 export default function ControlBar({
@@ -45,13 +46,14 @@ export default function ControlBar({
   activeToolName = '',
   onToggleMute,
   onToggleVideo,
-  onToggleScreenShare,
+  // onToggleScreenShare,
   onToggleChat,
   onToggleParticipants,
   onToggleGesture,
   onToggleDrawing,
   onClearDrawing,
   onLeave,
+  unreadCount = 0,
 }: ControlBarProps) {
   return (
     <div className="fixed bottom-0 left-0 right-0 z-30">
@@ -78,14 +80,14 @@ export default function ControlBar({
           </Button>
 
           {/* Screen Share */}
-          <Button
+          {/* <Button
             variant={isScreenSharing ? 'gradient' : 'control'}
             size="iconLg"
             onClick={onToggleScreenShare}
             title={isScreenSharing ? 'Stop sharing' : 'Share screen'}
           >
             <ScreenShare className="w-5 h-5" />
-          </Button>
+          </Button> */}
 
           <div className="w-px h-8 bg-border" />
 
@@ -145,19 +147,26 @@ export default function ControlBar({
           </Button>
 
           {/* Chat */}
-          <Button
-            variant={isChatOpen ? 'gradient' : 'control'}
-            size="iconLg"
-            onClick={onToggleChat}
-            title="Chat"
-          >
-            <MessageSquare className="w-5 h-5" />
-          </Button>
+          <div className="relative">
+            <Button
+              variant={isChatOpen ? 'gradient' : 'control'}
+              size="iconLg"
+              onClick={onToggleChat}
+              title="Chat"
+            >
+              <MessageSquare className="w-5 h-5" />
+            </Button>
+            {unreadCount > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold px-1">
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
+          </div>
 
           {/* More */}
-          <Button variant="control" size="iconLg" title="More options">
-            <MoreHorizontal className="w-5 h-5" />
-          </Button>
+          {/* <Button variant="control" size="iconLg" title="More options"> */}
+          {/* <MoreHorizontal className="w-5 h-5" /> */}
+          {/* </Button> */}
 
           <div className="w-px h-8 bg-border" />
 

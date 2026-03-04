@@ -50,28 +50,28 @@ io.on("connection", (socket) => {
     rooms[roomId].push(newUser);
     socket.join(roomId);
 
-      // send existing users to new user
-      socket.emit("existing-users", rooms[roomId]);
+    // send existing users to new user
+    socket.emit("existing-users", rooms[roomId]);
 
-      // notify others
-      socket.to(roomId).emit("user-joined", newUser);
-    });
+    // notify others
+    socket.to(roomId).emit("user-joined", newUser);
+  });
 
-    // 🔥 HANDLE LEAVE HERE
-    socket.on("disconnect", () => {
+  // 🔥 HANDLE LEAVE HERE
+  socket.on("disconnect", () => {
 
-      const roomId = socket.roomId;
+    const roomId = socket.roomId;
 
-      if (!roomId || !rooms[roomId]) return;
+    if (!roomId || !rooms[roomId]) return;
 
-      rooms[roomId] = rooms[roomId].filter(
-        u => u.id !== socket.id
-      );
+    rooms[roomId] = rooms[roomId].filter(
+      u => u.id !== socket.id
+    );
 
-      socket.to(roomId).emit("user-left", socket.id);
+    socket.to(roomId).emit("user-left", socket.id);
 
-      console.log("User left:", socket.id);
-    });
+    console.log("User left:", socket.id);
+  });
 
 
 
@@ -86,6 +86,11 @@ io.on("connection", (socket) => {
 
   socket.on("ice-candidate", (data) => {
     socket.to(data.roomId).emit("ice-candidate", data);
+  });
+
+  // ---------- CHAT ----------
+  socket.on("send-message", ({ roomId, message }) => {
+    socket.to(roomId).emit("receive-message", message);
   });
 });
 

@@ -20,7 +20,7 @@ export default function ParticipantsPanel({ isOpen, onClose, participants }: Par
   if (!isOpen) return null;
 
   return (
-    <div className="w-80 h-full glass-strong flex flex-col animate-slide-in-right">
+    <div className="fixed top-0 right-0 z-40 w-80 h-full glass-strong flex flex-col animate-slide-in-right">
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-border">
         <div>
@@ -102,11 +102,11 @@ export default function ParticipantsPanel({ isOpen, onClose, participants }: Par
       </div>
 
       {/* Footer */}
-      <div className="p-4 border-t border-border">
+      {/* <div className="p-4 border-t border-border">
         <Button variant="glass" className="w-full">
           Invite Participants
         </Button>
-      </div>
+      </div> */}
     </div>
   );
 }
