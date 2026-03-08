@@ -9,10 +9,12 @@ export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     password: '',
+    confirmPassword: '',
   });
   const [error, setError] = useState('');
 
@@ -30,6 +32,9 @@ export default function Auth() {
       } else {
         if (!formData.name.trim()) {
           throw new Error('Name is required');
+        }
+        if (formData.password !== formData.confirmPassword) {
+          throw new Error('Passwords do not match');
         }
         await register(formData.name, formData.email, formData.password);
       }
@@ -53,7 +58,7 @@ export default function Auth() {
       <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-br from-primary/20 via-background to-secondary/20" />
         <div className="absolute inset-0" style={{ background: 'var(--gradient-glow)' }} />
-        
+
         <div className="relative z-10 flex flex-col justify-center px-16 w-full">
           <div className="mb-12 animate-fade-in">
             <h1 className="text-5xl font-display font-bold mb-4">
@@ -147,6 +152,29 @@ export default function Auth() {
                 </div>
               </div>
 
+              {!isLogin && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-foreground">Confirm Password</label>
+                  <div className="relative">
+                    <Input
+                      type={showConfirmPassword ? 'text' : 'password'}
+                      placeholder="••••••••"
+                      value={formData.confirmPassword}
+                      onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
+                      required
+                      className="pr-12"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {error && (
                 <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3 text-destructive text-sm">
                   {error}
@@ -177,6 +205,8 @@ export default function Auth() {
                   onClick={() => {
                     setIsLogin(!isLogin);
                     setError('');
+                    setFormData((prev) => ({ ...prev, confirmPassword: '' }));
+                    setShowConfirmPassword(false);
                   }}
                   className="text-primary hover:underline font-medium"
                 >
